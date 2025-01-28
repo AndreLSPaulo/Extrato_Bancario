@@ -18,6 +18,9 @@ from io import BytesIO
 # Biblioteca para gerar PDF
 from fpdf import FPDF
 
+import re
+
+
 # ==========================================
 #   CONFIGURAÇÃO INICIAL DO STREAMLIT
 # ==========================================
@@ -25,6 +28,59 @@ st.set_page_config(page_title="Analista de Extratos Bancários", layout="centere
 
 logo_path = "MP.png"           # Caminho para a logomarca
 glossary_path = "Tarifas.txt"  # Caminho para o glossário
+
+
+# ==========================================
+#   FUNÇÃO PARA SANITIZAR O NOME DO CLIENTE
+# ==========================================
+def sanitize_nome_cliente(nome: str) -> str:
+    """
+    Recebe a string do nome do cliente e remove acentos/caracteres especiais,
+    além de trocar espaços por underscores, para evitar problemas em nomes de arquivos.
+    """
+    # Remove espaços extras nas extremidades
+    nome = nome.strip()
+
+    # Troca espaços em branco por underscore
+    nome = nome.replace(" ", "_")
+
+    # Remove qualquer caractere que não seja alfanumérico, underscore ou hífen
+    nome = re.sub(r"[^\w\-_]", "", nome)
+
+    return nome
+
+
+# ==========================================
+#   FUNÇÃO PARA TENTAR EXTRair NOME DO CLIENTE
+# ==========================================
+def extrair_nome_cliente(pdf_path):
+    """
+    Tenta extrair o nome do cliente de dentro do PDF,
+    procurando pela substring 'Nome:' e pegando o conteúdo até uma quebra de linha.
+    Caso não encontre, retorna 'Sem_Nome'.
+    """
+    try:
+        with open(pdf_path, "rb") as file:
+            pdf_reader = PyPDF2.PdfReader(file)
+
+            # Ler somente a primeira página (ou todas, se necessário)
+            first_page_text = pdf_reader.pages[0].extract_text()
+
+            # Procurar o padrão "Nome:"
+            if "Nome:" in first_page_text:
+                pos = first_page_text.find("Nome:") + len("Nome:")
+                restante = first_page_text[pos:].strip()
+
+                # Pegar apenas até a primeira quebra de linha (se houver)
+                linha = restante.split("\n")[0].strip()
+
+                # Sanitizar
+                return sanitize_nome_cliente(linha) if linha else "Sem_Nome"
+    except Exception:
+        pass
+
+    return "Sem_Nome"
+
 
 # ==========================================
 #   FUNÇÃO PARA GERAR PDF EM PAISAGEM
@@ -171,9 +227,6 @@ def df_to_doc_bytes(df, titulo="Relatório", adicionar_totais=False):
                 run.font.bold = True
 
     # Definir larguras das colunas conforme o PDF ajustado
-    # Conversão de mm para polegadas (1 polegada = 25.4 mm)
-    # Baseado nas proporções ajustadas para o PDF:
-    # Data: 15 mm, Histórico: 227 mm, Docto.: 15 mm, Débito/Crédito (R$): 20 mm
     col_widths_inches = []
     for col in df.columns:
         if col == "Histórico":
@@ -194,24 +247,25 @@ def df_to_doc_bytes(df, titulo="Relatório", adicionar_totais=False):
                 text = str(item).replace('\n', ' ').replace('\r', ' ').strip()
             else:
                 text = str(item)
+
             paragraph = row_cells[i].paragraphs[0]
             run = paragraph.add_run(text)
+
             if df.columns[i] == "Histórico":
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
             else:
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
             run.font.size = Pt(9)
-            # Remover quebras de linha para garantir uma única linha
-            # run.add_break()  # Removido conforme solicitado
             paragraph.line_spacing = Pt(9)  # Ajuste para evitar múltiplas linhas
 
             # **Formatação para Linhas de Totais**
-            if row["Histórico"] in ["Valor Total (R$)", "Em dobro (R$)"]:
+            if "Histórico" in row and row["Histórico"] in ["Valor Total (R$)", "Em dobro (R$)"]:
                 run.font.bold = True
                 run.font.size = Pt(14)  # Aumentar o tamanho da fonte
                 run.font.color.rgb = RGBColor(255, 0, 0)  # Cor vermelha
 
-    # Adicionar linhas de totais se necessário
+    # Adicionar linhas de totais se necessário (geralmente já adicionamos antes no DF)
     if adicionar_totais and not df.empty:
         # Calcular total
         total_col = "Débito (R$)" if "Débito (R$)" in df.columns else "Crédito (R$)"
@@ -220,7 +274,7 @@ def df_to_doc_bytes(df, titulo="Relatório", adicionar_totais=False):
             .str.replace('.', '', regex=False)
             .str.replace(',', '.', regex=False),
             errors='coerce'
-        ).sum()
+        ).abs().sum()
 
         # Adicionar linha de Valor Total (R$)
         total_row = table.add_row().cells
@@ -229,13 +283,13 @@ def df_to_doc_bytes(df, titulo="Relatório", adicionar_totais=False):
         total_row[2].text = ""
         total_row[3].text = f"{total:.2f}"
 
-        for i, cell in enumerate(total_row.cells):
+        for i, cell in enumerate(total_row):
             paragraph = cell.paragraphs[0]
             run = paragraph.runs[0]
             if i == 1 or i == 3:
                 run.font.bold = True
-                run.font.size = Pt(14)  # Aumentar o tamanho da fonte
-                run.font.color.rgb = RGBColor(255, 0, 0)  # Cor vermelha
+                run.font.size = Pt(14)
+                run.font.color.rgb = RGBColor(255, 0, 0)
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if i != 1 else WD_ALIGN_PARAGRAPH.LEFT
 
         # Adicionar linha de Em dobro (R$)
@@ -246,13 +300,13 @@ def df_to_doc_bytes(df, titulo="Relatório", adicionar_totais=False):
         double_row[2].text = ""
         double_row[3].text = f"{double_total:.2f}"
 
-        for i, cell in enumerate(double_row.cells):
+        for i, cell in enumerate(double_row):
             paragraph = cell.paragraphs[0]
             run = paragraph.runs[0]
             if i == 1 or i == 3:
                 run.font.bold = True
-                run.font.size = Pt(14)  # Aumentar o tamanho da fonte
-                run.font.color.rgb = RGBColor(255, 0, 0)  # Cor vermelha
+                run.font.size = Pt(14)
+                run.font.color.rgb = RGBColor(255, 0, 0)
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if i != 1 else WD_ALIGN_PARAGRAPH.LEFT
 
     # Salvar documento em bytes
@@ -380,7 +434,6 @@ def processar_pdf(pdf_path):
                 if len(df.columns) >= 6:
                     df.columns = expected_columns
                 else:
-                    # Ajustar se o número de colunas for diferente
                     df = df.iloc[:, :6]
                     df.columns = expected_columns
 
@@ -417,7 +470,6 @@ def filtrar_debitos(df):
     debitos = df[df["Débito (R$)"].notna() & (df["Débito (R$)"] != "")]
     # Excluir também as colunas "Crédito (R$)" e "Saldo (R$)"
     cols_to_drop = ["Crédito (R$)", "Saldo (R$)"]
-    # Verificar se as colunas existem antes de tentar dropar
     cols_presentes = [col for col in cols_to_drop if col in debitos.columns]
     debitos = debitos.drop(columns=cols_presentes)
     return debitos
@@ -430,7 +482,6 @@ def filtrar_creditos(df):
     creditos = df[df["Crédito (R$)"].notna() & (df["Crédito (R$)"] != "")]
     # Excluir também as colunas "Débito (R$)" e "Saldo (R$)"
     cols_to_drop = ["Débito (R$)", "Saldo (R$)"]
-    # Verificar se as colunas existem antes de tentar dropar
     cols_presentes = [col for col in cols_to_drop if col in creditos.columns]
     creditos = creditos.drop(columns=cols_presentes)
     return creditos
@@ -441,9 +492,11 @@ def filtrar_creditos(df):
 # ==========================================
 def main():
     # Inicializar todas as chaves do session_state no início
-    for key in ["df_extrato", "df_debito", "df_debito_gloss", "df_debito_gloss_filtrado",
-                "df_credito", "df_credito_gloss", "df_credito_gloss_filtrado",
-                "operacao_selecionada"]:
+    for key in [
+        "df_extrato", "df_debito", "df_debito_gloss", "df_debito_gloss_filtrado",
+        "df_credito", "df_credito_gloss", "df_credito_gloss_filtrado",
+        "operacao_selecionada", "nome_cliente"
+    ]:
         if key not in st.session_state:
             st.session_state[key] = None
 
@@ -472,6 +525,10 @@ def main():
             tmp_file.write(uploaded_file.read())
             pdf_path = tmp_file.name
 
+        # Extrair nome do cliente antes de processar PDF
+        nome_cliente_encontrado = extrair_nome_cliente(pdf_path)
+        st.session_state["nome_cliente"] = nome_cliente_encontrado
+
         try:
             df_extrato = processar_pdf(pdf_path)
             st.session_state["df_extrato"] = df_extrato
@@ -487,6 +544,7 @@ def main():
 
     # Definir operacao antes de usá-la para evitar UnboundLocalError
     operacao = st.session_state.get("operacao_selecionada", None)
+    nome_cliente = st.session_state.get("nome_cliente", "Sem_Nome")
 
     if st.session_state.get("df_extrato") is not None and not st.session_state["df_extrato"].empty:
         if not operacao:
@@ -501,6 +559,9 @@ def main():
                     st.session_state["operacao_selecionada"] = "Crédito"
                     operacao = "Crédito"
 
+        # -------------------------------------------------------
+        #                   ANÁLISE DE DÉBITOS
+        # -------------------------------------------------------
         if operacao == "Débito":
             st.markdown("## Análise de Débitos")
 
@@ -520,7 +581,7 @@ def main():
                 st.download_button(
                     label="Baixar PDF (Débitos)",
                     data=pdf_debitos,
-                    file_name="debitos.pdf",
+                    file_name=f"debitos_{nome_cliente}.pdf",
                     mime="application/pdf",
                 )
 
@@ -533,7 +594,7 @@ def main():
                         min_value=0.5,
                         max_value=1.0,
                         value=0.85,
-                        step=0.025,  # Alterado de 0.05 para 0.025
+                        step=0.025,
                         help="Limiar de similaridade para considerar uma correspondência válida."
                     )
                     filtrar_gloss_debito_submit = st.form_submit_button("Filtrar Débitos no Glossário")
@@ -556,14 +617,14 @@ def main():
                     st.download_button(
                         label="Baixar PDF (Débitos Glossário)",
                         data=pdf_gloss_debito,
-                        file_name="debitos_glossario.pdf",
+                        file_name=f"debitos_glossario_{nome_cliente}.pdf",
                         mime="application/pdf",
                     )
 
             if st.session_state.get("df_debito_gloss") is not None and not st.session_state["df_debito_gloss"].empty:
-                # 3) LISTA ÚNICA + EXCLUSÕES PARA DÉBITOS
+                # 3) LISTA ÚNICA DE 'HISTÓRICO' + INCLUSÕES
                 with st.form("excluir_debitos_form"):
-                    st.markdown("### 3) Lista Única de 'Histórico' para Débitos + Exclusão")
+                    st.markdown("### 3) Lista Única de 'Histórico' para Débitos + Inclusão")
 
                     df_gloss_original_debito = st.session_state.get("df_debito_gloss")
                     if df_gloss_original_debito is not None and not df_gloss_original_debito.empty:
@@ -575,7 +636,7 @@ def main():
 
                         valores_unicos_debito = sorted(df_base_exclusao_debito["Histórico"].unique())
                         st.markdown("#### Lista Única de 'Histórico' (Débitos - sem repetições)")
-                        st.write("Marque os itens que deseja excluir:")
+                        st.write("Marque os itens que deseja incluir:")
 
                         selected_historicos_debito = []
                         for i, hist in enumerate(valores_unicos_debito):
@@ -584,25 +645,34 @@ def main():
                             if st.checkbox(rotulo, key=f"unique_hist_debito_{i}"):
                                 selected_historicos_debito.append(hist)
 
-                        confirmar_exclusao_debito = st.form_submit_button("Confirmar Exclusão Selecionados (Débitos)")
-                        if confirmar_exclusao_debito:
+                        confirmar_inclusao_debito = st.form_submit_button("Confirmar Inclusão dos Selecionados (Débitos)")
+                        if confirmar_inclusao_debito:
                             if selected_historicos_debito:
-                                df_filtrado_debito = df_base_exclusao_debito[~df_base_exclusao_debito["Histórico"].isin(selected_historicos_debito)]
+                                # Manter apenas os selecionados
+                                df_filtrado_debito = df_base_exclusao_debito[
+                                    df_base_exclusao_debito["Histórico"].isin(selected_historicos_debito)
+                                ]
                                 df_filtrado_debito = df_filtrado_debito.reset_index(drop=True)
 
-                                st.success("Operações de Débito excluídas com sucesso!")
-                                st.markdown("#### Lista Restante após Exclusões (Débitos - sem repetições)")
+                                st.success("Operações de Débito incluídas com sucesso!")
+                                st.markdown("#### Lista Restante após Inclusões (Débitos - sem repetições)")
 
                                 if df_filtrado_debito.empty:
                                     st.write("Nenhum histórico de Débito restante.")
                                 else:
-                                    df_restante_unicos_debito = df_filtrado_debito["Histórico"].value_counts().reset_index()
+                                    df_restante_unicos_debito = (
+                                        df_filtrado_debito["Histórico"]
+                                        .value_counts()
+                                        .reset_index()
+                                    )
                                     df_restante_unicos_debito.columns = ["Histórico", "Ocorrências"]
                                     st.dataframe(df_restante_unicos_debito, use_container_width=True)
 
                                 st.session_state["df_debito_gloss_filtrado"] = df_filtrado_debito
                             else:
-                                st.warning("Nenhuma descrição de Débito foi selecionada para exclusão.")
+                                df_filtrado_debito = pd.DataFrame()
+                                st.session_state["df_debito_gloss_filtrado"] = df_filtrado_debito
+                                st.warning("Nenhuma descrição de Débito foi selecionada para inclusão.")
                     else:
                         st.warning("É preciso primeiro Filtrar Débitos no Glossário (etapa anterior).")
 
@@ -616,19 +686,19 @@ def main():
                         df_para_exibir_debito = st.session_state.get("df_debito_gloss_filtrado")
 
                         if df_para_exibir_debito is not None and not df_para_exibir_debito.empty:
-                            # Excluir as colunas "Crédito (R$)" e "Saldo (R$)" se ainda não foram excluídas
+                            # Excluir colunas que não precisamos (se ainda existirem)
                             cols_to_drop = ["Crédito (R$)", "Saldo (R$)"]
                             cols_presentes = [col for col in cols_to_drop if col in df_para_exibir_debito.columns]
                             if cols_presentes:
                                 df_para_exibir_debito = df_para_exibir_debito.drop(columns=cols_presentes)
 
-                            # Calcular total dos débitos
+                            # Calcular total dos débitos (em valor positivo)
                             total_debitos = pd.to_numeric(
                                 df_para_exibir_debito["Débito (R$)"]
                                 .str.replace('.', '', regex=False)
                                 .str.replace(',', '.', regex=False),
                                 errors='coerce'
-                            ).sum()
+                            ).abs().sum()
 
                             # Criar duas novas linhas com "Valor Total (R$)" e "Em dobro (R$)"
                             valor_total = pd.DataFrame({
@@ -665,7 +735,7 @@ def main():
                                 "Data"
                             ] = ""
 
-                            st.markdown("#### DataFrame Final de Débitos (Após Exclusões), Ordenado")
+                            st.markdown("#### DataFrame Final de Débitos (Após Inclusões), Ordenado")
                             st.dataframe(extrato_debito_final, use_container_width=True)
 
                             # Gerar PDF final com linhas formatadas
@@ -677,25 +747,28 @@ def main():
                             st.download_button(
                                 label="Baixar PDF (Débitos Final - Cronológico)",
                                 data=pdf_final_debito,
-                                file_name="debitos_final_cronologico.pdf",
+                                file_name=f"debitos_final_cronologico_{nome_cliente}.pdf",
                                 mime="application/pdf",
                             )
 
-                            # Gerar DOCX final com totais
+                            # Gerar DOCX final com totais (opcionalmente adicionar_totais=False, pois já incluímos as linhas)
                             doc_final_debito = df_to_doc_bytes(
                                 extrato_debito_final,
                                 titulo="Extrato Final de Débitos (Cronológico)",
-                                adicionar_totais=False  # Já adicionamos as linhas de totais
+                                adicionar_totais=False
                             )
                             st.download_button(
                                 label="Baixar DOCX (Débitos Final - Cronológico)",
                                 data=doc_final_debito,
-                                file_name="debitos_final_cronologico.docx",
+                                file_name=f"debitos_final_cronologico_{nome_cliente}.docx",
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                             )
                         else:
                             st.warning("Não há extrato final para Débitos para apresentar. Verifique se já fez as etapas anteriores.")
 
+        # -------------------------------------------------------
+        #                   ANÁLISE DE CRÉDITOS
+        # -------------------------------------------------------
         elif operacao == "Crédito":
             st.markdown("## Análise de Créditos")
 
@@ -715,7 +788,7 @@ def main():
                 st.download_button(
                     label="Baixar PDF (Créditos)",
                     data=pdf_creditos,
-                    file_name="creditos.pdf",
+                    file_name=f"creditos_{nome_cliente}.pdf",
                     mime="application/pdf",
                 )
 
@@ -751,14 +824,14 @@ def main():
                     st.download_button(
                         label="Baixar PDF (Créditos Glossário)",
                         data=pdf_gloss_credito,
-                        file_name="creditos_glossario.pdf",
+                        file_name=f"creditos_glossario_{nome_cliente}.pdf",
                         mime="application/pdf",
                     )
 
             if st.session_state.get("df_credito_gloss") is not None and not st.session_state["df_credito_gloss"].empty:
-                # 3) LISTA ÚNICA + EXCLUSÕES PARA CRÉDITOS
+                # 3) LISTA ÚNICA DE 'HISTÓRICO' + INCLUSÕES
                 with st.form("excluir_creditos_form"):
-                    st.markdown("### 3) Lista Única de 'Histórico' para Créditos + Exclusão")
+                    st.markdown("### 3) Lista Única de 'Histórico' para Créditos + Inclusão")
 
                     df_gloss_original_credito = st.session_state.get("df_credito_gloss")
                     if df_gloss_original_credito is not None and not df_gloss_original_credito.empty:
@@ -770,7 +843,7 @@ def main():
 
                         valores_unicos_credito = sorted(df_base_exclusao_credito["Histórico"].unique())
                         st.markdown("#### Lista Única de 'Histórico' (Créditos - sem repetições)")
-                        st.write("Marque os itens que deseja excluir:")
+                        st.write("Marque os itens que deseja incluir:")
 
                         selected_historicos_credito = []
                         for i, hist in enumerate(valores_unicos_credito):
@@ -779,25 +852,34 @@ def main():
                             if st.checkbox(rotulo, key=f"unique_hist_credito_{i}"):
                                 selected_historicos_credito.append(hist)
 
-                        confirmar_exclusao_credito = st.form_submit_button("Confirmar Exclusão Selecionados (Créditos)")
-                        if confirmar_exclusao_credito:
+                        confirmar_inclusao_credito = st.form_submit_button("Confirmar Inclusão dos Selecionados (Créditos)")
+                        if confirmar_inclusao_credito:
                             if selected_historicos_credito:
-                                df_filtrado_credito = df_base_exclusao_credito[~df_base_exclusao_credito["Histórico"].isin(selected_historicos_credito)]
+                                # Manter apenas os selecionados
+                                df_filtrado_credito = df_base_exclusao_credito[
+                                    df_base_exclusao_credito["Histórico"].isin(selected_historicos_credito)
+                                ]
                                 df_filtrado_credito = df_filtrado_credito.reset_index(drop=True)
 
-                                st.success("Operações de Crédito excluídas com sucesso!")
-                                st.markdown("#### Lista Restante após Exclusões (Créditos - sem repetições)")
+                                st.success("Operações de Crédito incluídas com sucesso!")
+                                st.markdown("#### Lista Restante após Inclusões (Créditos - sem repetições)")
 
                                 if df_filtrado_credito.empty:
                                     st.write("Nenhum histórico de Crédito restante.")
                                 else:
-                                    df_restante_unicos_credito = df_filtrado_credito["Histórico"].value_counts().reset_index()
+                                    df_restante_unicos_credito = (
+                                        df_filtrado_credito["Histórico"]
+                                        .value_counts()
+                                        .reset_index()
+                                    )
                                     df_restante_unicos_credito.columns = ["Histórico", "Ocorrências"]
                                     st.dataframe(df_restante_unicos_credito, use_container_width=True)
 
                                 st.session_state["df_credito_gloss_filtrado"] = df_filtrado_credito
                             else:
-                                st.warning("Nenhuma descrição de Crédito foi selecionada para exclusão.")
+                                df_filtrado_credito = pd.DataFrame()
+                                st.session_state["df_credito_gloss_filtrado"] = df_filtrado_credito
+                                st.warning("Nenhuma descrição de Crédito foi selecionada para inclusão.")
                     else:
                         st.warning("É preciso primeiro Filtrar Créditos no Glossário (etapa anterior).")
 
@@ -811,19 +893,19 @@ def main():
                         df_para_exibir_credito = st.session_state.get("df_credito_gloss_filtrado")
 
                         if df_para_exibir_credito is not None and not df_para_exibir_credito.empty:
-                            # Excluir as colunas "Débito (R$)" e "Saldo (R$)" se ainda não foram excluídas
+                            # Excluir colunas que não precisamos
                             cols_to_drop = ["Débito (R$)", "Saldo (R$)"]
                             cols_presentes = [col for col in cols_to_drop if col in df_para_exibir_credito.columns]
                             if cols_presentes:
                                 df_para_exibir_credito = df_para_exibir_credito.drop(columns=cols_presentes)
 
-                            # Calcular total dos créditos
+                            # Calcular total dos créditos (em valor positivo)
                             total_creditos = pd.to_numeric(
                                 df_para_exibir_credito["Crédito (R$)"]
                                 .str.replace('.', '', regex=False)
                                 .str.replace(',', '.', regex=False),
                                 errors='coerce'
-                            ).sum()
+                            ).abs().sum()
 
                             # Criar duas novas linhas com "Valor Total (R$)" e "Em dobro (R$)"
                             valor_total_credito = pd.DataFrame({
@@ -860,7 +942,7 @@ def main():
                                 "Data"
                             ] = ""
 
-                            st.markdown("#### DataFrame Final de Créditos (Após Exclusões), Ordenado")
+                            st.markdown("#### DataFrame Final de Créditos (Após Inclusões), Ordenado")
                             st.dataframe(extrato_credito_final, use_container_width=True)
 
                             # Gerar PDF final com linhas formatadas
@@ -872,7 +954,7 @@ def main():
                             st.download_button(
                                 label="Baixar PDF (Créditos Final - Cronológico)",
                                 data=pdf_final_credito,
-                                file_name="creditos_final_cronologico.pdf",
+                                file_name=f"creditos_final_cronologico_{nome_cliente}.pdf",
                                 mime="application/pdf",
                             )
 
@@ -880,12 +962,12 @@ def main():
                             doc_final_credito = df_to_doc_bytes(
                                 extrato_credito_final,
                                 titulo="Extrato Final de Créditos (Cronológico)",
-                                adicionar_totais=False  # Já adicionamos as linhas de totais
+                                adicionar_totais=False
                             )
                             st.download_button(
                                 label="Baixar DOCX (Créditos Final - Cronológico)",
                                 data=doc_final_credito,
-                                file_name="creditos_final_cronologico.docx",
+                                file_name=f"creditos_final_cronologico_{nome_cliente}.docx",
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                             )
                         else:
@@ -896,6 +978,7 @@ def main():
             if st.button("Redefinir Seleção"):
                 st.session_state["operacao_selecionada"] = None
                 st.experimental_rerun()
+
 
 if __name__ == "__main__":
     main()

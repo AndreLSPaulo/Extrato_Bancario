@@ -50,25 +50,16 @@ AP MODULAR PREM
 VIDA E PREVIDENCIA 
 PREVPLAN
 TIT CAP
-
-
-
-
 SEGURO AQUI DEV
 SEGURO AUTO RE
-SEGURO PRESTAMISTA
 SEGURO PROTEÇAO
 SEGURO MULHER
 AP MODULAR PREM
 VIDA E PREV
 PREVPLAN
 TIT CAP 
-
-
-
-Tarifa Bancária Cesta B.expresso4
 Pagto Cobrança Previsul
-​​​​​Pagto Cobrança Mongeral S/A
+Pagto Cobrança Mongeral S/A
 Pagto Cobrança Suda
 Pagto Cobrança Clube de Seguros do Brasil
 Seguro Superprotegido
@@ -76,8 +67,11 @@ SEBRASEG
 PSERV
 CARTAO CREDITO ANUIDADE
 CESTA CLIK CONTA
-BRADESCO VIDA E PREVIDÊNCIA
+•	BRADESCO VIDA E PREVIDÊNCIA
+VIDA
+PREVIDENCIA
 CESTA BÁSICA DE SERVIÇOS
+CESTA BASICA
 CESTA FÁCIL ECONÔMICA 
 CLADAL
 SABEMI
@@ -99,11 +93,12 @@ GRUPO ARMACOLLO
 VIZAPREVSEGUROS
 BINCLUB
 
-PADRONIZADO PRIORITÁRIOS II
-PADRONIZADO PRIORITÁRIOS I
+Cestas de serviços
+TARIFA BANCARIA 
 
-#### Cestas de serviços
+CESTA B. EXPRESSO
 
+Tarifa Bancária Cesta B.expresso4
 Classic
 Classic Mais
 Cesta Bradesco Expresso
@@ -130,7 +125,9 @@ Pacote Padronizado de Serviços IV Banco Migrado
 Cesta Fácil Master
 Cesta Fácil Super
 Cesta Fácil Mais
+CESTA FACIL
 Cesta Fácil Econômica
+CESTA FACIL ECONOMICA
 Cesta Fácil Prática
 Cesta SmartConta
 Celular Bradesco
@@ -165,4 +162,18 @@ Universitário
 Universitário I
 Cesta NEXT Light
 Cesta Classic 2
-
+PADRONIZADO PRIORITÁRIOS II
+PADRONIZADO PRIORITÁRIOS I
+Vr.parcial Padronizado Prior
+Padronizado Prioritarios i
+Pacote Servico Padro
+CESTA B.EXPRESSO1
+CLUBE SEBRASEG
+TITULO DE CAPITALIZACAO
+Resg. Tit
+Resg.tit.
+TITULO
+TÍTULO
+EMPRÉSTIMO
+EMP
+EMPRESTIMO
